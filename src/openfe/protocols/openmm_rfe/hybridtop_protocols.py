@@ -28,6 +28,7 @@ from gufe import (
     ProteinComponent,
     ProteinMembraneComponent,
     SmallMoleculeComponent,
+    SolvatedPDBComponent,
     SolventComponent,
     settings,
 )
@@ -435,7 +436,21 @@ class RelativeHybridTopologyProtocol(gufe.Protocol):
             )
             raise ValueError(errmsg)
 
-        ion = {-1: solvent_component.positive_ion, 1: solvent_component.negative_ion}[difference]
+        if hasattr(solvent_component, 'positive_ion'):
+            ion = {-1: solvent_component.positive_ion, 1: solvent_component.negative_ion}[difference]
+        else:
+            # SolvatedPDBComponent (e.g. ProteinMembraneComponent) carries
+            # explicit water and ions but doesn't expose ion-name attributes.
+            # Default to NaCl because most membrane MD setups use it.  A
+            # future improvement could inspect the topology for the actual
+            # ion species present.
+            ion = {-1: "Na+", 1: "Cl-"}[difference]
+            logger.warning(
+                "Solvent component has no ion attributes; defaulting to "
+                "%s for charge correction. If the system uses different "
+                "ions (e.g. KCl), this may be incorrect.",
+                ion,
+            )
 
         wmsg = (
             f"A charge difference of {difference} is observed "
@@ -560,6 +575,18 @@ class RelativeHybridTopologyProtocol(gufe.Protocol):
         # Note: validation depends on the mapping & solvent component checks
         if stateA.contains(SolventComponent):
             solv_comp = stateA.get_components_of_type(SolventComponent)[0]
+        elif stateA.contains(SolvatedPDBComponent):
+            # ProteinMembraneComponent (and other SolvatedPDBComponents)
+            # already contain explicit water and ions as part of the
+            # pre-equilibrated box.  Treating them as solvated here lets
+            # _validate_charge_difference enable explicit charge correction
+            # (alchemical water → ion mutation) for charge-changing edges,
+            # which would otherwise fail with "Cannot use explicit charge
+            # correction without solvent".
+            #
+            # validate_solvent() (called above) guarantees at most one
+            # SolvatedPDBComponent, so [0] is safe.
+            solv_comp = stateA.get_components_of_type(SolvatedPDBComponent)[0]
         else:
             solv_comp = None
 

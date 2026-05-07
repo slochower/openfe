@@ -172,9 +172,34 @@ def handle_alchemical_waters(
         raise ValueError(errmsg)
 
     if charge_difference > 0:
-        ion_resname = solvent_component.positive_ion.strip('-+').upper()
+        if hasattr(solvent_component, 'positive_ion'):
+            ion_resname = solvent_component.positive_ion.strip('-+').upper()
+        else:
+            # SolvatedPDBComponent (e.g. ProteinMembraneComponent) carries
+            # explicit water and ions but doesn't expose ion-name attributes.
+            # Default to Na+ because most membrane MD setups use NaCl.  If
+            # the actual system uses KCl, the wrong ion species will be
+            # inserted — a future improvement could inspect the topology for
+            # the dominant cation.
+            ion_resname = "NA"
+            logger.warning(
+                "Solvent component has no positive_ion attribute; "
+                "defaulting to NA for charge correction. If the system "
+                "uses a different cation (e.g. K+), the alchemical water "
+                "mutation will insert the wrong ion species."
+            )
     elif charge_difference < 0:
-        ion_resname = solvent_component.negative_ion.strip('-+').upper()
+        if hasattr(solvent_component, 'negative_ion'):
+            ion_resname = solvent_component.negative_ion.strip('-+').upper()
+        else:
+            # Same reasoning as above — default to Cl- for NaCl systems.
+            ion_resname = "CL"
+            logger.warning(
+                "Solvent component has no negative_ion attribute; "
+                "defaulting to CL for charge correction. If the system "
+                "uses a different anion, the alchemical water mutation "
+                "will insert the wrong ion species."
+            )
     # if there's no charge difference then just skip altogether
     else:
         return None
